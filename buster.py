@@ -115,6 +115,13 @@ def main():
                 with open(filepath, "w") as fo:
                     fo.write(filetext)
 
+                with open(filepath) as fi:
+                    filetext = fi.read().replace(REMOTE_PATH + REMOTE_PATH, REMOTE_PATH)
+                    print "fixing doubled-up REMOTE_PATHs in ", filepath
+                with open(filepath, "w") as fo:
+                    fo.write(filetext)
+
+
 
 
     elif arguments['deploy']:
