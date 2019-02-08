@@ -26,7 +26,7 @@ from git import Repo
 from pyquery import PyQuery
 import fileinput
 
-LOCALHOST = 'http://localhost:2368'
+LOCAL_GHOST = 'http://localhost:2368'
 REMOTE_DOMAIN = 'https://hoardinghopes.github.io'
 REMOTE_PATH = REMOTE_DOMAIN + '/falling-uphill'
 
@@ -98,7 +98,7 @@ def main():
                     f.write(newtext)
 
                 with open(filepath) as fi:
-                    filetext = fi.read().replace(LOCALHOST, REMOTE_PATH)
+                    filetext = fi.read().replace(LOCAL_GHOST, REMOTE_PATH)
                     print "fixing localhosts in ", filepath
                 with open(filepath, "w") as fo:
                     fo.write(filetext)
