@@ -63,16 +63,23 @@ def main():
 
         abs_url_regex = re.compile(r'^(?:[a-z]+:)?//', flags=re.IGNORECASE)
         # remove superfluous "index.html" from relative hyperlinks found in text
-        def fixHrefLinks(text, parser):
+        def fixHrefLinks(text, parser, page_slug):
             d = PyQuery(bytes(bytearray(text, encoding='utf-8')), parser=parser)
+            page_slug = find_page_slug(d)
             for element in d('a'):
                 e = PyQuery(element)
                 href = e.attr('href')
-                if not abs_url_regex.search(href):
-                    new_href = re.sub(r'rss/index\.html$', 'rss/index.rss', href)
-                    new_href = re.sub(r'/index\.html$', '/', new_href)
-                    e.attr('href', REMOTE_PATH + new_href)
-                    print "\t", href, "=>", new_href
+                print "\thref", href
+                if href is not None: #no href means it's a named anchor in the text
+                    if not abs_url_regex.search(href):
+                        new_href = re.sub(r'rss/index\.html$', 'rss/index.rss', href)
+                        new_href = re.sub(r'/index\.html$', '/', new_href)
+
+                        if new_href.find('#') > -1:
+                            print "\t\tfound an internal link: ", new_href
+                            new_href = page_slug + new_href
+                        e.attr('href', REMOTE_PATH + new_href)
+                        print "\t", href, "=>", e.attr('href')
             if parser == 'html':
                 return d.html(method='html').encode('utf8')
             return d.__unicode__().encode('utf8')
@@ -93,7 +100,7 @@ def main():
                 with open(filepath) as f:
                     filetext = f.read().decode('utf8')
                     print "fixing hrefs in ", filepath
-                    newtext = fixHrefLinks(filetext, parser)
+                    newtext = fixHrefLinks(filetext, parser, filename)
                 with open(filepath, 'w') as f:
                     f.write(newtext)
 
@@ -138,6 +145,26 @@ def main():
 
     else:
         print __doc__
+
+
+def find_page_slug(d):
+    for element in d('link'):
+        e = PyQuery(element)
+        r = e.attr('rel')
+        if r is not None:
+            if r.find('canonical') > -1:
+                print "canoncial: ", r
+
+                link = e.attr('href')
+                # slug_regex = re.compile(r'(/[a-z-]*/)$')
+                m = re.search(r'(/[a-z-]*/)$', link)
+                if m:
+                    print "slug_regex: " , m.group(0)
+                    return m.group(0)
+                return ""
+
+
+
 
 if __name__ == '__main__':
     main()
