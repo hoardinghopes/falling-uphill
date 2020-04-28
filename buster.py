@@ -135,13 +135,10 @@ def find_page_slug(d):
         r = e.attr('rel')
         if r is not None:
             if r.find('canonical') > -1:
-                print "canoncial: ", r
-
                 link = e.attr('href')
-                # slug_regex = re.compile(r'(/[a-z-]*/)$')
                 m = re.search(r'(/[a-z-]*/)$', link)
                 if m:
-                    print "slug_regex: " , m.group(0)
+                    print "page-slug regex: " , m.group(0)
                     return m.group(0)
                 return ""
 
@@ -165,8 +162,6 @@ def deploy():
     )
     print "Good job! Deployed to Github Pages."
 
-def help():
-    print __doc__
 
 def main():
     arguments = docopt(__doc__, version='1.0.1')
@@ -180,7 +175,7 @@ def main():
     elif arguments['deploy']:
         deploy(static_path)
     else:
-        help()
+        print __doc__
 
 if __name__ == '__main__':
     main()
