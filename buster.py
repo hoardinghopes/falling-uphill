@@ -1,4 +1,6 @@
 """Ghost Buster. Static site generator for Ghost.
+Re-written by me, to do what I want.
+Ghost Buster v0.1.3, but my version starts at v1.0.1
 
 Usage:
   buster.py generate [--domain=<local-address>] [--dir=<path>]
@@ -15,11 +17,10 @@ Options:
 
 import os
 import re
-import sys
 import fnmatch
-import shutil
-import SocketServer
-import SimpleHTTPServer
+
+
+
 from docopt import docopt
 from time import gmtime, strftime
 from git import Repo
@@ -31,121 +32,102 @@ REMOTE_DOMAIN = 'https://hoardinghopes.github.io'
 REMOTE_PATH = REMOTE_DOMAIN + '/falling-uphill'
 
 
-def main():
-    arguments = docopt(__doc__, version='0.1.3')
-    if arguments['--dir'] is not None:
-        static_path = arguments['--dir']
-    else:
-        static_path = os.path.join(os.getcwd(), 'static')
+def generate(static_path, domain):
+    wget_pages(static_path, domain)
+    fix_query_string(static_path)
 
-    if arguments['generate']:
-        command = ("wget "
-                   "--recursive "             # follow links to download entire site
-                   #"--convert-links "         # make links relative
-                   "--page-requisites "       # grab everything: css / inlined images
-                   "--no-parent "             # don't go to parent level
-                   "--directory-prefix {1} "  # download contents to static/ folder
-                   "--no-host-directories "   # don't create domain named folder
-                   "--restrict-file-name=unix "  # don't escape query string
-                   "--base=" + REMOTE_DOMAIN + " "
-                   "{0}").format(arguments['--domain'], static_path)
-        os.system(command)
+    # fix links in all html files
+    for root, dirs, filenames in os.walk(static_path):
+        for filename in fnmatch.filter(filenames, "*.html"):
+            filepath = os.path.join(root, filename)
+            parser = 'html'
 
-        # remove query string since Ghost 0.4
-        file_regex = re.compile(r'.*?(\?.*)')
-        for root, dirs, filenames in os.walk(static_path):
-            for filename in filenames:
-                if file_regex.match(filename):
-                    newname = re.sub(r'\?.*', '', filename)
-                    print "Rename", filename, "=>", newname
-                    os.rename(os.path.join(root, filename), os.path.join(root, newname))
+            if root.endswith("/rss"):  # rename rss index.html to index.rss
+                parser = 'xml'
+                newfilepath = os.path.join(root, os.path.splitext(filename)[0] + ".rss")
+                os.rename(filepath, newfilepath)
+                filepath = newfilepath
 
+            update_links(filepath, filename, parser)
+            update_localhosts(filepath)
+            update_images(filepath)
+            update_assets(filepath)
+            fix_localhost_doubles(filepath)
 
-        abs_url_regex = re.compile(r'^(?:[a-z]+:)?//', flags=re.IGNORECASE)
-        # remove superfluous "index.html" from relative hyperlinks found in text
-        def fixHrefLinks(text, parser, page_slug):
-            d = PyQuery(bytes(bytearray(text, encoding='utf-8')), parser=parser)
-            page_slug = find_page_slug(d)
-            for element in d('a'):
-                e = PyQuery(element)
-                href = e.attr('href')
-                print "\thref", href
-                if href is not None: #no href means it's a named anchor in the text
-                    if not abs_url_regex.search(href):
-                        new_href = re.sub(r'rss/index\.html$', 'rss/index.rss', href)
-                        new_href = re.sub(r'/index\.html$', '/', new_href)
+def wget_pages(static_path, domain):
+    command = ("wget "
+               "--recursive "             # follow links to download entire site
+               #"--convert-links "         # make links relative
+               "--page-requisites "       # grab everything: css / inlined images
+               "--no-parent "             # don't go to parent level
+               "--directory-prefix {1} "  # download contents to static/ folder
+               "--no-host-directories "   # don't create domain named folder
+               "--restrict-file-name=unix "  # don't escape query string
+               "--base=" + REMOTE_DOMAIN + " "
+               "{0}").format(domain, static_path)
+    os.system(command)
 
-                        if new_href.find('#') > -1:
-                            print "\t\tfound an internal link: ", new_href
-                            new_href = page_slug + new_href
-                        e.attr('href', REMOTE_PATH + new_href)
-                        print "\t", href, "=>", e.attr('href')
-            if parser == 'html':
-                return d.html(method='html').encode('utf8')
-            return d.__unicode__().encode('utf8')
+def update_links(filepath, filename, parser):
+    with open(filepath) as fi:
+        filetext = fi.read().decode('utf8')
+        print "fixing hrefs in ", filepath
+        newtext = fix_href_links(filetext, parser, filename)
+    with open(filepath, 'w') as fo:
+        fo.write(newtext)
 
+def update_localhosts(filepath):
+    replace_stuff(filepath, LOCAL_GHOST, REMOTE_PATH, "fixing localhosts in " + filepath)
 
+def update_images(filepath):
+    replace_stuff(filepath, '/content', REMOTE_PATH + '/content', "fixing images in " + filepath)
 
+def update_assets(filepath):
+    replace_stuff(filepath, '/assets', REMOTE_PATH + '/assets', "fixing assets in " + filepath)
 
-        # fix links in all html files
-        for root, dirs, filenames in os.walk(static_path):
-            for filename in fnmatch.filter(filenames, "*.html"):
-                filepath = os.path.join(root, filename)
-                parser = 'html'
-                if root.endswith("/rss"):  # rename rss index.html to index.rss
-                    parser = 'xml'
-                    newfilepath = os.path.join(root, os.path.splitext(filename)[0] + ".rss")
-                    os.rename(filepath, newfilepath)
-                    filepath = newfilepath
-                with open(filepath) as f:
-                    filetext = f.read().decode('utf8')
-                    print "fixing hrefs in ", filepath
-                    newtext = fixHrefLinks(filetext, parser, filename)
-                with open(filepath, 'w') as f:
-                    f.write(newtext)
-
-                with open(filepath) as fi:
-                    filetext = fi.read().replace(LOCAL_GHOST, REMOTE_PATH)
-                    print "fixing localhosts in ", filepath
-                with open(filepath, "w") as fo:
-                    fo.write(filetext)
-
-                with open(filepath) as fi:
-                    filetext = fi.read().replace('/content',  REMOTE_PATH + '/content')
-                    print "fixing images in ", filepath
-                with open(filepath, "w") as fo:
-                    fo.write(filetext)
-
-                with open(filepath) as fi:
-                    filetext = fi.read().replace('/assets', REMOTE_PATH + '/assets')
-                    print "fixing assets in ", filepath
-                with open(filepath, "w") as fo:
-                    fo.write(filetext)
-
-                with open(filepath) as fi:
-                    filetext = fi.read().replace(REMOTE_PATH + REMOTE_PATH, REMOTE_PATH)
-                    print "fixing doubled-up REMOTE_PATHs in ", filepath
-                with open(filepath, "w") as fo:
-                    fo.write(filetext)
+def fix_localhost_doubles(filepath):
+    replace_stuff(filepath, REMOTE_PATH + REMOTE_PATH, REMOTE_PATH, "fixing doubled-up REMOTE_PATHs in " + filepath)
 
 
+def replace_stuff(filepath, pattern_str, replacement_str, comment):
+    with open(filepath) as fi:
+        filetext = fi.read().replace(pattern_str, replacement_str)
+        print comment
+    with open(filepath, "w") as fo:
+        fo.write(filetext)
 
+abs_url_regex = re.compile(r'^(?:[a-z]+:)?//', flags=re.IGNORECASE)
+# remove superfluous "index.html" from relative hyperlinks found in text
 
-    elif arguments['deploy']:
-        repo = Repo(static_path)
-        repo.git.add('.')
+def fix_href_links(text, parser, page_slug):
+    d = PyQuery(bytes(bytearray(text, encoding='utf-8')), parser=parser)
+    page_slug = find_page_slug(d)
+    for element in d('a'):
+        e = PyQuery(element)
+        href = e.attr('href')
+        print "\thref", href
+        if href is not None: #no href means it's a named anchor in the text
+            if not abs_url_regex.search(href):
+                new_href = re.sub(r'rss/index\.html$', 'rss/index.rss', href)
+                new_href = re.sub(r'/index\.html$', '/', new_href)
 
-        current_time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
-        repo.index.commit('Blog update at {}'.format(current_time))
+                if new_href.find('#') > -1:
+                    print "\t\tfound an internal link: ", new_href
+                    new_href = page_slug + new_href
+                e.attr('href', REMOTE_PATH + new_href)
+                print "\t", href, "=>", e.attr('href')
+    if parser == 'html':
+        return d.html(method='html').encode('utf8')
+    return d.__unicode__().encode('utf8')
 
-        origin = repo.remotes.origin
-        repo.git.execute(['git', 'push', '-u', origin.name,
-                         repo.active_branch.name])
-        print "Good job! Deployed to Github Pages."
-
-    else:
-        print __doc__
-
+def fix_query_string(static_path):
+    # remove query string since Ghost 0.4
+    file_regex = re.compile(r'.*?(\?.*)')
+    for root, dirs, filenames in os.walk(static_path):
+        for filename in filenames:
+            if file_regex.match(filename):
+                newname = re.sub(r'\?.*', '', filename)
+                print "Rename", filename, "=>", newname
+                os.rename(os.path.join(root, filename), os.path.join(root, newname))
 
 def find_page_slug(d):
     for element in d('link'):
@@ -164,7 +146,41 @@ def find_page_slug(d):
                 return ""
 
 
+def deploy():
+    repo = Repo(static_path)
+    repo.git.add('.')
 
+    current_time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
+    repo.index.commit('Blog update at {}'.format(current_time))
+
+    origin = repo.remotes.origin
+    repo.git.execute(
+        [
+            'git',
+            'push',
+            '-u',
+            origin.name,
+            repo.active_branch.name
+        ]
+    )
+    print "Good job! Deployed to Github Pages."
+
+def help():
+    print __doc__
+
+def main():
+    arguments = docopt(__doc__, version='1.0.1')
+    if arguments['--dir'] is not None:
+        static_path = arguments['--dir']
+    else:
+        static_path = os.path.join(os.getcwd(), 'static')
+
+    if arguments['generate']:
+        generate(static_path, arguments['--domain'])
+    elif arguments['deploy']:
+        deploy(static_path)
+    else:
+        help()
 
 if __name__ == '__main__':
     main()
