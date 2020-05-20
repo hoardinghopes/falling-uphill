@@ -1,3 +1,4 @@
 # ignore the static directory, as it belongs to the gh-pages branch
 static
 buster.log
+.DS_Store

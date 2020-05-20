@@ -1,8 +1,9 @@
-"""Ghost Buster. Static site generator for Ghost.
+"""
+Ghost Buster. Static site generator for Ghost.
 Re-written by me, to do what I want.
-Ghost Buster v0.1.3, but my version starts at v1.0.1
+Ghost Buster v0.1.3, but my version starts at v1.2.0
 
-Version v1.0.1 requires python2 or python2.7, and will break under python3
+Version v1.2.0 requires python3.
 
 Usage:
   buster.py generate [--domain=<local-address>] [--dir=<path>]
@@ -23,12 +24,16 @@ import os
 import re
 import fnmatch
 
+import docopt
+import time
+import git
 
-from docopt import docopt
-from time import gmtime, strftime
-from git import Repo
-from pyquery import PyQuery
 import fileinput
+import pyquery
+
+#from git import Repo
+#from pyquery import PyQuery
+
 
 LOCAL_GHOST = 'http://localhost:2368'
 REMOTE_DOMAIN = 'https://hoardinghopes.github.io'
@@ -73,7 +78,7 @@ def wget_pages(static_path, domain):
 
 def update_links(filepath, filename, parser):
     with open(filepath) as fi:
-        filetext = fi.read().decode('utf8')
+        filetext = fi.read()#.decode('utf8')
         print("fixing hrefs in ", filepath)
         newtext = fix_href_links(filetext, parser, filename)
     with open(filepath, 'w') as fo:
@@ -103,10 +108,11 @@ abs_url_regex = re.compile(r'^(?:[a-z]+:)?//', flags=re.IGNORECASE)
 # remove superfluous "index.html" from relative hyperlinks found in text
 
 def fix_href_links(text, parser, page_slug):
-    d = PyQuery(bytes(bytearray(text, encoding='utf-8')), parser=parser)
+    d = pyquery.PyQuery(bytes(bytearray(text, encoding='utf-8')), parser=parser)
+
     page_slug = find_page_slug(d)
     for element in d('a'):
-        e = PyQuery(element)
+        e = pyquery.PyQuery(element)
         href = e.attr('href')
         #print("\thref", href)
         if href is not None: #no href means it's a named anchor in the text
@@ -120,8 +126,8 @@ def fix_href_links(text, parser, page_slug):
                 e.attr('href', REMOTE_PATH + new_href)
                 print("\t", href, "=>", e.attr('href'))
     if parser == 'html':
-        return d.html(method='html').encode('utf8')
-    return d.__unicode__().encode('utf8')
+        return d.html(method='html').encode('utf8').decode()
+    return d.__unicode__().encode('utf8').decode()
 
 def fix_query_string(static_path):
     # remove query string since Ghost 0.4
@@ -135,7 +141,7 @@ def fix_query_string(static_path):
 
 def find_page_slug(d):
     for element in d('link'):
-        e = PyQuery(element)
+        e = pyquery.PyQuery(element)
         r = e.attr('rel')
         if r is not None:
             if r.find('canonical') > -1:
@@ -148,10 +154,10 @@ def find_page_slug(d):
 
 
 def deploy(static_path):
-    repo = Repo(static_path)
+    repo = git.Repo(static_path)
     repo.git.add('.')
 
-    current_time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
+    current_time = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
     repo.index.commit('Blog update at {}'.format(current_time))
 
     origin = repo.remotes.origin
@@ -167,8 +173,9 @@ def deploy(static_path):
     print("Good job! Deployed to Github Pages: ", REMOTE_PATH)
 
 
+
 def main():
-    arguments = docopt(__doc__, version='1.0.1')
+    arguments = docopt.docopt(__doc__, version='1.2.0')
     if arguments['--dir'] is not None:
         static_path = arguments['--dir']
     else:
@@ -180,6 +187,8 @@ def main():
         deploy(static_path)
     else:
         print(__doc__)
+
+
 
 if __name__ == '__main__':
     main()
